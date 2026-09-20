@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<title>512890 红利低波ETF｜策略监控看板（行情+微信推送）</title>
+<title>512890 红利低波ETF｜策略监控看板【真实行情+微信推送】</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
 *{box-sizing:border-box;font-family:system-ui, sans-serif;}
@@ -118,7 +118,7 @@ th{background:#252f42;color:#b1c5e9;}
 <div class="card">
   <h2>策略说明与风险提示</h2>
   <div style="color:#b4c3dd;line-height:1.7;">
-  ✅ 数据来源：东方财富公开ETF实时行情<br>
+  ✅ 数据来源：东方财富公开ETF实时行情（通过Vercel后端代理）<br>
   ✅ 推送：Server酱微信推送，触发加仓/止盈才发送消息，避免骚扰<br>
   ⚠️ 重要：本工具仅为策略监控，不构成任何投资建议；行情接口存在延迟、停更、限流风险；实盘请自行二次核验行情。
   </div>
@@ -196,10 +196,9 @@ async function testWxMsg(){
   await sendWxMessage("512890看板测试消息", "微信推送通道测试成功！");
 }
 
-// 【真实行情接口：东方财富512890】
+// =========【修改：Vercel代理接口，解决跨域】=========
 async function fetchRealNetValue(){
-  // 512890 东方财富代码：15978713
-  const apiUrl = "https://push2.eastmoney.com/api/qt/stock/get?fltt=1&invt=2&secid=1.15978713&fields=f43,f169,f170,f46,f44,f45,f47";
+  const apiUrl = "./api/proxy";
   const res = await fetch(apiUrl);
   const json = await res.json();
   const net = Number(json.data.f43)/100;
@@ -267,7 +266,7 @@ async function refreshData(){
     }
   }catch(err){
     console.error("行情拉取失败",err);
-    document.getElementById('adviceBox').innerText = "行情拉取失败";
+    document.getElementById('adviceBox').innerText = "行情拉取失败（代理异常）";
     document.getElementById('adviceBox').className = "advice advice-hold";
   }
 }
@@ -333,4 +332,3 @@ window.onload = function(){
 </script>
 </body>
 </html>
-
