@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>512890 红利低波ETF｜策略监控看板（行情+微信推送）</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+*{box-sizing:border-box;font-family:system-ui, sans-serif;}
+body{background:#121722;color:#e8edf7;padding:20px;max-width:1400px;margin:0 auto;}
+.card{background:#1c2434;border-radius:12px;padding:20px;margin-bottom:16px;box-shadow:0 4px 12px #00000033;}
+h2{margin-top:0;color:#72b4ff;}
+.grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;}
+.chart-wrap{height:320px;}
+@media(max-width:900px){.grid{grid-template-columns:1fr;}}
+.data-item{padding:12px;border-bottom:1px solid #303b52;display:flex;justify-content:space-between;}
+.label{color:#a2b0cb;}
+.val{font-weight:bold;font-size:1.05rem;}
+.advice{font-size:1.3rem;padding:16px;border-radius:10px;text-align:center;font-weight:bold;}
+.advice-buy{background:#1b4234;color:#47e096;}
+.advice-hold{background:#323520;color:#e6d457;}
+.advice-sell{background:#442424;color:#ff7c7c;}
+.ctrl-row{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin:10px 0;}
+input{background:#283247;color:#fff;border:1px solid #445474;padding:8px;border-radius:6px;width:160px;}
+button{background:#2b64c7;color:#fff;border:none;padding:9px 16px;border-radius:7px;cursor:pointer;}
+button:hover{background:#3978e4;}
+table{width:100%;border-collapse:collapse;margin-top:10px;}
+th,td{border:1px solid #303b52;padding:10px;text-align:left;}
+th{background:#252f42;color:#b1c5e9;}
+.alert-setting{background:#233048;padding:14px;border-radius:8px;margin:10px 0;}
+</style>
+</head>
+<body>
+<h1>512890 红利低波ETF｜策略监控看板【真实行情+微信推送】</h1>
+
+<div class="card alert-setting">
+  <h2>推送配置（Server酱）</h2>
+  <div class="ctrl-row">
+    <span>Server酱 SendKey：</span>
+    <input id="sendKey" placeholder="填写SCUxxxx">
+    <button onclick="saveSendKey()">保存推送密钥</button>
+    <button onclick="testWxMsg()">测试微信推送</button>
+    <span style="color:#a2b0cb;font-size:0.9rem;">已预置你的SendKey，可直接点测试推送</span>
+  </div>
+</div>
+
+<div class="card">
+  <h2>策略参数设置（本地保存）</h2>
+  <div class="ctrl-row">
+    <span>止盈区间涨幅阈值 %：</span>
+    <input id="winThresh" value="18">
+    <span>加仓回撤阈值 %：</span>
+    <input id="dropThresh" value="-8">
+    <span>账户总资产(元)：</span>
+    <input id="totalAsset" value="500000">
+    <button onclick="saveParams()">保存参数</button>
+    <button onclick="refreshData()">14:30 手动拉取行情</button>
+  </div>
+  <div style="color:#a2b0cb;font-size:0.9rem;">
+    自动机制：交易日每日14:30拉取真实净值，计算指标，触发条件自动推送微信消息；非交易日不执行刷新
+  </div>
+</div>
+
+<div class="grid">
+  <div class="card">
+    <h2>实时指标</h2>
+    <div class="data-item"><span class="label">ETF代码</span><span class="val">512890</span></div>
+    <div class="data-item"><span class="label">当前净值</span><span class="val" id="netVal">--</span></div>
+    <div class="data-item"><span class="label">策略基准起点净值</span><span class="val" id="baseVal">--</span></div>
+    <div class="data-item"><span class="label">区间涨幅(%)</span><span class="val" id="gainPct">--</span></div>
+    <div class="data-item"><span class="label">当前最大回撤(%)</span><span class="val" id="drawdownPct">--</span></div>
+    <div class="data-item"><span class="label">最后更新时间</span><span class="val" id="updateTime">--</span></div>
+  </div>
+
+  <div class="card">
+    <h2>操作建议</h2>
+    <div class="advice" id="adviceBox">等待行情数据</div>
+    <div style="margin-top:16px;color:#b4c3dd;line-height:1.6;">
+      <b>策略规则：</b><br>
+      1. 区间涨幅 ≥ 止盈阈值 → 分批止盈 + 微信推送<br>
+      2. 回撤 ≤ 加仓阈值 → 分层加仓 + 微信推送<br>
+      3. 中间区间 → 持有不动，不推送消息
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>仓位信息</h2>
+    <div class="data-item"><span class="label">底仓比例</span><span class="val">30%</span></div>
+    <div class="data-item"><span class="label">机动仓位</span><span class="val" id="dynamicPos">0%</span></div>
+    <div class="data-item"><span class="label">现金剩余</span><span class="val" id="cashLeft">--</span></div>
+    <div class="data-item"><span class="label">本次建议交易金额</span><span class="val" id="tradeAmt">--</span></div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>净值走势图</h2>
+  <div class="chart-wrap">
+    <canvas id="netChart"></canvas>
+  </div>
+</div>
+
+<div class="grid">
+  <div class="card">
+    <h2>历史回撤事件记录</h2>
+    <table>
+      <thead><tr><th>时间</th><th>前置涨幅%</th><th>回撤幅度%</th><th>触发动作</th></tr></thead>
+      <tbody id="historyTbody"></tbody>
+    </table>
+  </div>
+  <div class="card">
+    <h2>历史交易记录</h2>
+    <table>
+      <thead><tr><th>时间</th><th>操作</th><th>净值</th><th>金额</th></tr></thead>
+      <tbody id="tradeTbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <h2>策略说明与风险提示</h2>
+  <div style="color:#b4c3dd;line-height:1.7;">
+  ✅ 数据来源：东方财富公开ETF实时行情<br>
+  ✅ 推送：Server酱微信推送，触发加仓/止盈才发送消息，避免骚扰<br>
+  ⚠️ 重要：本工具仅为策略监控，不构成任何投资建议；行情接口存在延迟、停更、限流风险；实盘请自行二次核验行情。
+  </div>
+</div>
+
+<script>
+//全局变量
+let params = {winThresh:18, dropThresh:-8, totalAsset:500000};
+let baseNet = 1.02;
+let peakNet = 1.02;
+let historyList = [];
+let tradeList = [];
+let chartInstance = null;
+// 预置你的Server酱SendKey
+let sendKey = "SCT423981TNRAvQrLdrvcVbZWVpfcVRTrj";
+let alreadyNotify = false; //防止同一条件重复推送
+
+//初始化
+function init(){
+  const savedParam = localStorage.getItem('etf512890_param');
+  if(savedParam) params = JSON.parse(savedParam);
+  document.getElementById('winThresh').value = params.winThresh;
+  document.getElementById('dropThresh').value = params.dropThresh;
+  document.getElementById('totalAsset').value = params.totalAsset;
+
+  const savedSendKey = localStorage.getItem('etf512890_sendkey');
+  // 本地存储优先级 > 代码预置密钥
+  if(savedSendKey) sendKey = savedSendKey;
+  document.getElementById('sendKey').value = sendKey;
+
+  const his = localStorage.getItem('etf512890_history');
+  if(his) historyList = JSON.parse(his);
+  const tradeHis = localStorage.getItem('etf512890_trade');
+  if(tradeHis) tradeList = JSON.parse(tradeHis);
+
+  renderHistory();
+  renderTrade();
+  initChart();
+  refreshData();
+}
+
+function saveParams(){
+  params.winThresh = Number(document.getElementById('winThresh').value);
+  params.dropThresh = Number(document.getElementById('dropThresh').value);
+  params.totalAsset = Number(document.getElementById('totalAsset').value);
+  localStorage.setItem('etf512890_param', JSON.stringify(params));
+  alert("策略参数已保存");
+}
+function saveSendKey(){
+  sendKey = document.getElementById('sendKey').value.trim();
+  localStorage.setItem('etf512890_sendkey', sendKey);
+  alert("SendKey保存成功");
+}
+
+//微信推送调用Server酱接口
+async function sendWxMessage(title, content){
+  if(!sendKey){
+    alert("请先填写并保存Server酱SendKey！");
+    return;
+  }
+  const url = `https://sctapi.ftqq.com/${sendKey}.send?title=${encodeURIComponent(title)}&desp=${encodeURIComponent(content)}`;
+  try{
+    const res = await fetch(url);
+    const ret = await res.json();
+    if(ret.code ===0){
+      console.log("微信推送成功");
+    }else{
+      console.error("推送失败", ret);
+    }
+  }catch(e){
+    console.error("推送请求异常", e);
+  }
+}
+async function testWxMsg(){
+  await sendWxMessage("512890看板测试消息", "微信推送通道测试成功！");
+}
+
+// 【真实行情接口：东方财富512890】
+async function fetchRealNetValue(){
+  // 512890 东方财富代码：15978713
+  const apiUrl = "https://push2.eastmoney.com/api/qt/stock/get?fltt=1&invt=2&secid=1.15978713&fields=f43,f169,f170,f46,f44,f45,f47";
+  const res = await fetch(apiUrl);
+  const json = await res.json();
+  const net = Number(json.data.f43)/100;
+  return net;
+}
+
+async function refreshData(){
+  try{
+    const currentNet = await fetchRealNetValue();
+    if(currentNet > peakNet) peakNet = currentNet;
+    const gainPct = ((currentNet - baseNet)/baseNet *100).toFixed(2);
+    const drawdownPct = ((currentNet - peakNet)/peakNet *100).toFixed(2);
+    const now = new Date();
+    const timeStr = now.toLocaleString();
+
+    //页面赋值
+    document.getElementById('netVal').innerText = currentNet.toFixed(4);
+    document.getElementById('baseVal').innerText = baseNet.toFixed(4);
+    document.getElementById('gainPct').innerText = gainPct + "%";
+    document.getElementById('drawdownPct').innerText = drawdownPct + "%";
+    document.getElementById('updateTime').innerText = timeStr;
+
+    //策略判断
+    let advice, cssClass, action, tradeAmt=0;
+    if(Number(gainPct) >= params.winThresh){
+      advice = "✅ 触发止盈，分批卖出";
+      cssClass = "advice-sell";
+      action = "止盈卖出";
+      tradeAmt = params.totalAsset * 0.15;
+      if(!alreadyNotify){
+        await sendWxMessage("【512890触发止盈】",`当前净值：${currentNet}\n区间涨幅：${gainPct}%\n回撤：${drawdownPct}%\n建议分批止盈`);
+        alreadyNotify = true;
+      }
+    }else if(Number(drawdownPct) <= params.dropThresh){
+      advice = "📈 触发加仓，分层买入";
+      cssClass = "advice-buy";
+      action = "加仓买入";
+      tradeAmt = params.totalAsset *0.15;
+      if(!alreadyNotify){
+        await sendWxMessage("【512890触发加仓】",`当前净值：${currentNet}\n区间涨幅：${gainPct}%\n回撤：${drawdownPct}%\n按计划执行加仓`);
+        alreadyNotify = true;
+      }
+    }else{
+      advice = "⏸️ 持有，继续监控";
+      cssClass = "advice-hold";
+      action = "持有";
+      alreadyNotify = false;
+    }
+
+    document.getElementById('adviceBox').innerText = advice;
+    document.getElementById('adviceBox').className = "advice " + cssClass;
+    document.getElementById('tradeAmt').innerText = tradeAmt.toFixed(2)+"元";
+    const cash = params.totalAsset * 0.7;
+    document.getElementById('cashLeft').innerText = cash.toFixed(2)+"元";
+
+    //记录事件
+    if(action !=="持有"){
+      historyList.push({time:timeStr, preGain:gainPct, draw:drawdownPct, action});
+      tradeList.push({time:timeStr, op:action, net:currentNet, amt:tradeAmt});
+      localStorage.setItem('etf512890_history', JSON.stringify(historyList));
+      localStorage.setItem('etf512890_trade', JSON.stringify(tradeList));
+      renderHistory();
+      renderTrade();
+      addChartPoint(timeStr, currentNet);
+    }
+  }catch(err){
+    console.error("行情拉取失败",err);
+    document.getElementById('adviceBox').innerText = "行情拉取失败";
+    document.getElementById('adviceBox').className = "advice advice-hold";
+  }
+}
+
+//表格渲染
+function renderHistory(){
+  const tbody = document.getElementById('historyTbody');
+  tbody.innerHTML = "";
+  historyList.slice(-8).forEach(r=>{
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${r.time}</td><td>${r.preGain}%</td><td>${r.draw}%</td><td>${r.action}</td>`;
+    tbody.appendChild(tr);
+  })
+}
+function renderTrade(){
+  const tbody = document.getElementById('tradeTbody');
+  tbody.innerHTML = "";
+  tradeList.slice(-8).forEach(r=>{
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${r.time}</td><td>${r.op}</td><td>${r.net.toFixed(4)}</td><td>${r.amt.toFixed(2)}</td>`;
+    tbody.appendChild(tr);
+  })
+}
+
+//图表
+function initChart(){
+  const ctx = document.getElementById('netChart').getContext('2d');
+  chartInstance = new Chart(ctx,{
+    type:'line',
+    data:{labels:[], datasets:[{label:"512890净值",data:[],borderColor:"#72b4ff",fill:false,tension:0.2}]},
+    options:{responsive:true,maintainAspectRatio:false,scales:{y:{grid:{color:"#303b52"}},x:{grid:{color:"#303b52"}}}}
+  })
+}
+function addChartPoint(label, val){
+  chartInstance.data.labels.push(label);
+  chartInstance.data.datasets[0].data.push(val);
+  if(chartInstance.data.labels.length>30){
+    chartInstance.data.labels.shift();
+    chartInstance.data.datasets[0].data.shift();
+  }
+  chartInstance.update();
+}
+
+//定时检测每日14:30
+function setupAutoTimer(){
+  function checkTime(){
+    const d = new Date();
+    const h = d.getHours();
+    const m = d.getMinutes();
+    const week = d.getDay();
+    //周一到周五交易日 14:30
+    if(week >=1 && week <=5 && h ===14 && m ===30){
+      refreshData();
+    }
+  }
+  setInterval(checkTime, 60*1000);
+}
+
+window.onload = function(){
+  init();
+  setupAutoTimer();
+}
+</script>
+</body>
+</html>
+
